@@ -6,6 +6,7 @@
     "vercel-build": "echo \"OK\""
   },
   "dependencies": {
+    "@upstash/redis": "^1.37.0",
     "node-fetch": "^3.3.1"
   }
 }

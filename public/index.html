@@ -77,6 +77,9 @@
 </label>
 
 <button id="export-btn">Экспорт</button>
+<button id="snapshot-btn">Сделать снимок</button>
+<button id="snapshot-latest-btn">Показать последний снимок</button>
+<span id="snapshot-status" style="margin-left: 8px;"></span>
 
 <table id="holders">
     <thead>
@@ -88,11 +91,79 @@
     </thead>
     <tbody></tbody>
 </table>
+
+<h2 style="margin-top: 24px;">Изменения относительно предыдущего снимка</h2>
+<div id="diff-wrap" style="display:none;">
+    <div style="display:flex; gap: 12px; flex-wrap: wrap;">
+        <div style="flex:1; min-width: 320px;">
+            <h3>Добавились</h3>
+            <table id="diff-added">
+                <thead>
+                <tr>
+                    <th style="width: 50px;">№</th>
+                    <th>Кошелек</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div style="flex:1; min-width: 320px;">
+            <h3>Пропали</h3>
+            <table id="diff-removed">
+                <thead>
+                <tr>
+                    <th style="width: 50px;">№</th>
+                    <th>Кошелек</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<h2 style="margin-top: 24px;">Снимки</h2>
+<div id="snapshots-wrap">
+    <div id="latest-snapshot" style="margin: 8px 0;"></div>
+    <table id="snapshots-table">
+        <thead>
+        <tr>
+            <th style="width: 80px;">A</th>
+            <th style="width: 80px;">B</th>
+            <th>Дата</th>
+            <th style="width: 120px;">Держателей</th>
+            <th>ID</th>
+        </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <button id="compare-btn" style="margin-top: 10px;">Сравнить A → B</button>
+</div>
 <script>
     let currentItems = [];
+    let currentSnapshots = [];
+    let compareA = null;
+    let compareB = null;
 
     function normalize(str) {
         return (str || '').toString().trim().toLowerCase();
+    }
+
+    function setStatus(text, isError) {
+        const el = document.getElementById('snapshot-status');
+        el.textContent = text || '';
+        el.style.color = isError ? '#b00020' : '#333';
+    }
+
+    function formatDate(iso) {
+        if (!iso) return '';
+        try {
+            const d = new Date(iso);
+            if (Number.isNaN(d.getTime())) return iso;
+            return d.toLocaleString();
+        } catch {
+            return iso;
+        }
     }
 
     function renderTable() {
@@ -119,6 +190,74 @@
         });
     }
 
+    function renderDiff(diff) {
+        const wrap = document.getElementById('diff-wrap');
+        const addedBody = document.querySelector('#diff-added tbody');
+        const removedBody = document.querySelector('#diff-removed tbody');
+
+        addedBody.innerHTML = '';
+        removedBody.innerHTML = '';
+
+        const added = (diff && diff.added) ? diff.added : [];
+        const removed = (diff && diff.removed) ? diff.removed : [];
+
+        added.forEach((wallet, idx) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${idx + 1}</td><td>${wallet}</td>`;
+            addedBody.appendChild(tr);
+        });
+
+        removed.forEach((wallet, idx) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${idx + 1}</td><td>${wallet}</td>`;
+            removedBody.appendChild(tr);
+        });
+
+        wrap.style.display = (added.length || removed.length) ? 'block' : 'none';
+    }
+
+    function renderSnapshotsList() {
+        const tbody = document.querySelector('#snapshots-table tbody');
+        tbody.innerHTML = '';
+
+        (currentSnapshots || []).forEach((s) => {
+            const tr = document.createElement('tr');
+            const id = s.id || '';
+
+            const aChecked = compareA === id ? 'checked' : '';
+            const bChecked = compareB === id ? 'checked' : '';
+
+            tr.innerHTML = `
+                <td style="text-align:center;"><input type="radio" name="compare-a" value="${id}" ${aChecked}></td>
+                <td style="text-align:center;"><input type="radio" name="compare-b" value="${id}" ${bChecked}></td>
+                <td>${formatDate(s.created_at)}</td>
+                <td style="text-align:center;">${s.total ?? ''}</td>
+                <td style="font-family: monospace; font-size: 12px;">${id}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        tbody.querySelectorAll('input[name="compare-a"]').forEach((el) => {
+            el.addEventListener('change', (e) => {
+                compareA = e.target.value;
+            });
+        });
+        tbody.querySelectorAll('input[name="compare-b"]').forEach((el) => {
+            el.addEventListener('change', (e) => {
+                compareB = e.target.value;
+            });
+        });
+    }
+
+    function renderLatestSnapshot(snapshot) {
+        const el = document.getElementById('latest-snapshot');
+        if (!snapshot) {
+            el.textContent = 'Последний снимок: нет';
+            return;
+        }
+        el.textContent = `Последний снимок: ${formatDate(snapshot.created_at)} · держателей: ${snapshot.total} · id: ${snapshot.id}`;
+    }
+
     async function load() {
         const contractAddress = document.getElementById('contract-address').value.trim();
         const title = document.getElementById('nft-title').value.trim();
@@ -138,6 +277,82 @@
     document.getElementById('nft-title').addEventListener('change', load);
 
     load();
+
+    async function loadSnapshotsList() {
+        const res = await fetch('/api/passport-snapshots?mode=list');
+        const data = await res.json().catch(() => ({}));
+        currentSnapshots = data.snapshots || [];
+
+        // Defaults: A = second item (previous), B = first item (latest)
+        if (!compareB && currentSnapshots[0]?.id) compareB = currentSnapshots[0].id;
+        if (!compareA && currentSnapshots[1]?.id) compareA = currentSnapshots[1].id;
+        if (!compareA && currentSnapshots[0]?.id) compareA = currentSnapshots[0].id;
+
+        renderSnapshotsList();
+    }
+
+    async function loadLatestSnapshot() {
+        const res = await fetch('/api/passport-snapshots?mode=latest');
+        const data = await res.json().catch(() => ({}));
+        renderLatestSnapshot(data.snapshot || null);
+    }
+
+    document.getElementById('snapshot-btn').addEventListener('click', async function () {
+        try {
+            setStatus('Делаю снимок...', false);
+            const contractAddress = document.getElementById('contract-address').value.trim();
+            const title = document.getElementById('nft-title').value.trim();
+
+            const res = await fetch('/api/passport-snapshots', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contract_address: contractAddress || undefined,
+                    title: title || undefined
+                })
+            });
+
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data && data.error ? data.error : `HTTP ${res.status}`);
+            }
+
+            renderDiff(data.diff);
+            const total = data && data.snapshot ? data.snapshot.total : '';
+            setStatus(`Снимок сохранён. Держателей: ${total}`, false);
+            await loadSnapshotsList();
+            renderLatestSnapshot(data.snapshot || null);
+        } catch (e) {
+            setStatus(e && e.message ? e.message : 'Ошибка', true);
+        }
+    });
+
+    document.getElementById('snapshot-latest-btn').addEventListener('click', async function () {
+        try {
+            setStatus('Загружаю последний снимок...', false);
+            await loadLatestSnapshot();
+            setStatus('', false);
+        } catch (e) {
+            setStatus(e && e.message ? e.message : 'Ошибка', true);
+        }
+    });
+
+    document.getElementById('compare-btn').addEventListener('click', async function () {
+        try {
+            if (!compareA || !compareB) throw new Error('Выбери снимки A и B');
+            setStatus('Сравниваю...', false);
+            const res = await fetch(`/api/passport-snapshots?mode=diff&from=${encodeURIComponent(compareA)}&to=${encodeURIComponent(compareB)}`);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data && data.error ? data.error : `HTTP ${res.status}`);
+            renderDiff(data.diff);
+            setStatus('Готово', false);
+        } catch (e) {
+            setStatus(e && e.message ? e.message : 'Ошибка', true);
+        }
+    });
+
+    loadSnapshotsList();
+    loadLatestSnapshot();
 
     document.getElementById('export-btn').addEventListener('click', function () {
         const q = normalize(document.getElementById('search').value);
