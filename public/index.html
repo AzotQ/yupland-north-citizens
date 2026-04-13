@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <title>Passport - North Upland</title>
+    <style>
+        body {
+            max-width: 800px;
+            margin: 0 auto 50px;
+            padding: 0 10px;
+        }
+        h1 {
+            margin: 10px 0;
+        }
+        .control-labels {
+            display: flex;
+            gap: 8px;
+        }
+        table {
+            border-collapse: collapse; width: 100%;
+        }
+        table#holders thead {
+            position: sticky;
+            top: -1px;
+        }
+        th, td {
+            border: 1px solid #ddd; padding: 8px;
+        }
+        th {
+            background: #f4f4f4;
+        }
+        button#export-btn {
+            margin: 10px 0;
+        }
+
+        @media (max-width: 480px) {
+            h1 {
+                font-size: 26px;
+            }
+            .control-labels {
+                flex-direction: column;
+                gap: 6px;
+            }
+            th, td {
+                padding: 4px;
+                font-size: 14px;
+            }
+            table#holders tbody tr > td:nth-of-type(2) {
+                max-width: 220px;
+                overflow: clip;
+                text-overflow: ellipsis;
+            }
+        }
+    </style>
+</head>
+<body>
+<h1>Passport - North Upland</h1>
+
+<div class="control-labels">
+    <label>
+        Контракт:
+        <input type="text" id="contract-address" value="" style="width:260px;">
+    </label>
+    <label>
+        Название NFT:
+        <input type="text" id="nft-title" value="Passport - North Upland" style="width:260px;">
+    </label>
+</div>
+<br>
+
+<label>
+    Поиск:
+    <input type="text" id="search" placeholder="кошелек или ник..." style="width:260px;">
+</label>
+
+<button id="export-btn">Экспорт</button>
+
+<table id="holders">
+    <thead>
+    <tr>
+        <th style="width: 50px;">№</th>
+        <th id="wallet-header">Кошелек</th>
+        <th>Никнейм телеграм</th>
+    </tr>
+    </thead>
+    <tbody></tbody>
+</table>
+<script>
+    let currentItems = [];
+
+    function normalize(str) {
+        return (str || '').toString().trim().toLowerCase();
+    }
+
+    function renderTable() {
+        const tbody = document.querySelector('#holders tbody');
+        tbody.innerHTML = '';
+        const q = normalize(document.getElementById('search').value);
+
+        const filtered = currentItems.filter((row) => {
+            if (!q) return true;
+            return normalize(row.wallet_id).includes(q) || normalize(row.telegram_username).includes(q);
+        });
+
+        document.getElementById('wallet-header').textContent = `Кошелек (${filtered.length})`;
+
+        filtered.forEach((row, idx) => {
+            const tr = document.createElement('tr');
+            const nick = row.telegram_username ? row.telegram_username : '';
+            tr.innerHTML = `
+                <td>${idx + 1}</td>
+                <td>${row.wallet_id}</td>
+                <td>${nick}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    async function load() {
+        const contractAddress = document.getElementById('contract-address').value.trim();
+        const title = document.getElementById('nft-title').value.trim();
+
+        const params = new URLSearchParams();
+        if (contractAddress) params.set('contract_address', contractAddress);
+        if (title) params.set('title', title);
+
+        const res = await fetch('/api/passport-holders' + (params.toString() ? `?${params.toString()}` : ''));
+        const data = await res.json();
+        currentItems = data.items || [];
+        renderTable();
+    }
+
+    document.getElementById('search').addEventListener('input', renderTable);
+    document.getElementById('contract-address').addEventListener('change', load);
+    document.getElementById('nft-title').addEventListener('change', load);
+
+    load();
+
+    document.getElementById('export-btn').addEventListener('click', function () {
+        const q = normalize(document.getElementById('search').value);
+        const filtered = currentItems.filter((row) => {
+            if (!q) return true;
+            return normalize(row.wallet_id).includes(q) || normalize(row.telegram_username).includes(q);
+        });
+
+        const header = ["№", "Кошелек", "Никнейм телеграм"];
+        const rows = filtered.map((row, idx) => [idx + 1, row.wallet_id, row.telegram_username || ""]);
+        const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Passport-Holders");
+        XLSX.writeFile(wb, "passport-holders.xlsx");
+    });
+</script>
+
+</body>
+</html>
