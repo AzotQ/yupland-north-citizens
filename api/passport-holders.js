@@ -58,14 +58,27 @@ function pickTelegramUsername(user) {
     user.userName ??
     user.username ??
     user.user_name ??
+    user.name ??
     "";
   if (typeof raw !== "string") return "";
   return raw.trim();
 }
 
+function unwrapSendlerUserResponse(maybeWrapped) {
+  if (!maybeWrapped || typeof maybeWrapped !== "object") return null;
+  if (maybeWrapped.data && typeof maybeWrapped.data === "object") return maybeWrapped.data;
+  return maybeWrapped;
+}
+
 function pickTelegramId(user) {
   if (!user || typeof user !== "object") return null;
-  const raw = user.telegramId ?? user.telegram_id ?? user.telegramID ?? null;
+  const raw =
+    user.telegramId ??
+    user.telegram_id ??
+    user.telegramID ??
+    user.telegram_id ??
+    user.telegramId ??
+    null;
   if (raw === null || raw === undefined) return null;
   const asNumber = typeof raw === "number" ? raw : Number(String(raw).trim());
   if (!Number.isFinite(asNumber)) return null;
@@ -130,14 +143,16 @@ export default async function handler(req, res) {
     ).sort((a, b) => a.localeCompare(b));
 
     const users = await mapWithConcurrencyLimit(wallets, 10, async (walletId) => {
-      const userByWallet = await fetchUserByWallet(walletId);
+      const userByWalletWrapped = await fetchUserByWallet(walletId);
+      const userByWallet = unwrapSendlerUserResponse(userByWalletWrapped);
 
       // Some Sendler setups return only telegramId here; then we need to query /user/{telegram_id}.
       let telegram = pickTelegramUsername(userByWallet);
       if (!telegram) {
         const telegramId = pickTelegramId(userByWallet);
         if (telegramId !== null) {
-          const userByTelegram = await fetchUserByTelegramId(telegramId);
+          const userByTelegramWrapped = await fetchUserByTelegramId(telegramId);
+          const userByTelegram = unwrapSendlerUserResponse(userByTelegramWrapped);
           telegram = pickTelegramUsername(userByTelegram) || telegram;
         }
       }
