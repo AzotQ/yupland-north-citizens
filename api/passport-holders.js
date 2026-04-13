@@ -52,6 +52,9 @@ function pickTelegramUsername(user) {
   const raw =
     user.telegram_username ??
     user.telegramUsername ??
+    user.telegram ??
+    user.tg_username ??
+    user.tgUsername ??
     user.userName ??
     user.username ??
     user.user_name ??
@@ -60,11 +63,28 @@ function pickTelegramUsername(user) {
   return raw.trim();
 }
 
+function pickTelegramId(user) {
+  if (!user || typeof user !== "object") return null;
+  const raw = user.telegramId ?? user.telegram_id ?? user.telegramID ?? null;
+  if (raw === null || raw === undefined) return null;
+  const asNumber = typeof raw === "number" ? raw : Number(String(raw).trim());
+  if (!Number.isFinite(asNumber)) return null;
+  return asNumber;
+}
+
 async function fetchUserByWallet(walletId) {
   const url = `${SENDLER_BASE_URL}/user/by-wallet/${encodeURIComponent(walletId)}`;
   const res = await fetch(url, { method: "GET", headers: buildHeaders() });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Sendler /user/by-wallet error: ${res.status} ${res.statusText}`);
+  return await res.json();
+}
+
+async function fetchUserByTelegramId(telegramId) {
+  const url = `${SENDLER_BASE_URL}/user/${encodeURIComponent(String(telegramId))}`;
+  const res = await fetch(url, { method: "GET", headers: buildHeaders() });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Sendler /user/{telegram_id} error: ${res.status} ${res.statusText}`);
   return await res.json();
 }
 
@@ -110,8 +130,18 @@ export default async function handler(req, res) {
     ).sort((a, b) => a.localeCompare(b));
 
     const users = await mapWithConcurrencyLimit(wallets, 10, async (walletId) => {
-      const user = await fetchUserByWallet(walletId);
-      const telegram = pickTelegramUsername(user);
+      const userByWallet = await fetchUserByWallet(walletId);
+
+      // Some Sendler setups return only telegramId here; then we need to query /user/{telegram_id}.
+      let telegram = pickTelegramUsername(userByWallet);
+      if (!telegram) {
+        const telegramId = pickTelegramId(userByWallet);
+        if (telegramId !== null) {
+          const userByTelegram = await fetchUserByTelegramId(telegramId);
+          telegram = pickTelegramUsername(userByTelegram) || telegram;
+        }
+      }
+
       return { wallet_id: walletId, telegram_username: telegram };
     });
 
