@@ -77,6 +77,8 @@
 </label>
 
 <button id="export-btn">Экспорт</button>
+<button id="snapshot-btn">Сделать снимок</button>
+<span id="snapshot-status" style="margin-left: 8px;"></span>
 
 <table id="holders">
     <thead>
@@ -88,11 +90,47 @@
     </thead>
     <tbody></tbody>
 </table>
+
+<h2 style="margin-top: 24px;">Изменения относительно предыдущего снимка</h2>
+<div id="diff-wrap" style="display:none;">
+    <div style="display:flex; gap: 12px; flex-wrap: wrap;">
+        <div style="flex:1; min-width: 320px;">
+            <h3>Добавились</h3>
+            <table id="diff-added">
+                <thead>
+                <tr>
+                    <th style="width: 50px;">№</th>
+                    <th>Кошелек</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div style="flex:1; min-width: 320px;">
+            <h3>Пропали</h3>
+            <table id="diff-removed">
+                <thead>
+                <tr>
+                    <th style="width: 50px;">№</th>
+                    <th>Кошелек</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</div>
 <script>
     let currentItems = [];
 
     function normalize(str) {
         return (str || '').toString().trim().toLowerCase();
+    }
+
+    function setStatus(text, isError) {
+        const el = document.getElementById('snapshot-status');
+        el.textContent = text || '';
+        el.style.color = isError ? '#b00020' : '#333';
     }
 
     function renderTable() {
@@ -119,6 +157,32 @@
         });
     }
 
+    function renderDiff(diff) {
+        const wrap = document.getElementById('diff-wrap');
+        const addedBody = document.querySelector('#diff-added tbody');
+        const removedBody = document.querySelector('#diff-removed tbody');
+
+        addedBody.innerHTML = '';
+        removedBody.innerHTML = '';
+
+        const added = (diff && diff.added) ? diff.added : [];
+        const removed = (diff && diff.removed) ? diff.removed : [];
+
+        added.forEach((wallet, idx) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${idx + 1}</td><td>${wallet}</td>`;
+            addedBody.appendChild(tr);
+        });
+
+        removed.forEach((wallet, idx) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${idx + 1}</td><td>${wallet}</td>`;
+            removedBody.appendChild(tr);
+        });
+
+        wrap.style.display = (added.length || removed.length) ? 'block' : 'none';
+    }
+
     async function load() {
         const contractAddress = document.getElementById('contract-address').value.trim();
         const title = document.getElementById('nft-title').value.trim();
@@ -138,6 +202,34 @@
     document.getElementById('nft-title').addEventListener('change', load);
 
     load();
+
+    document.getElementById('snapshot-btn').addEventListener('click', async function () {
+        try {
+            setStatus('Делаю снимок...', false);
+            const contractAddress = document.getElementById('contract-address').value.trim();
+            const title = document.getElementById('nft-title').value.trim();
+
+            const res = await fetch('/api/passport-snapshots', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contract_address: contractAddress || undefined,
+                    title: title || undefined
+                })
+            });
+
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data && data.error ? data.error : `HTTP ${res.status}`);
+            }
+
+            renderDiff(data.diff);
+            const total = data && data.snapshot ? data.snapshot.total : '';
+            setStatus(`Снимок сохранён. Держателей: ${total}`, false);
+        } catch (e) {
+            setStatus(e && e.message ? e.message : 'Ошибка', true);
+        }
+    });
 
     document.getElementById('export-btn').addEventListener('click', function () {
         const q = normalize(document.getElementById('search').value);
