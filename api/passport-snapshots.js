@@ -37,6 +37,17 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function normalizeSnapshotMeta(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  return {
+    id: snapshot.id,
+    created_at: snapshot.created_at,
+    contract_address: snapshot.contract_address,
+    title: snapshot.title,
+    total: snapshot.total,
+  };
+}
+
 function diffWallets(prevWallets, nextWallets) {
   const prev = new Set(prevWallets);
   const next = new Set(nextWallets);
@@ -117,8 +128,50 @@ export default async function handler(req, res) {
       const mode = (req.query?.mode || "latest").toString();
 
       if (mode === "list") {
-        const ids = (await redis.lrange(listKey, 0, 49)) || [];
-        return json(res, 200, { contract_address: contractAddress, title, snapshot_ids: ids });
+        const ids = (await redis.lrange(listKey, 0, 9)) || [];
+        const metaKeys = ids.map((id) => `passport:snapshotmeta:${id}`);
+        const metas = metaKeys.length ? await redis.mget(...metaKeys) : [];
+
+        const snapshots = [];
+        for (let i = 0; i < ids.length; i++) {
+          const id = ids[i];
+          const meta = metas?.[i];
+          if (meta && typeof meta === "object") {
+            snapshots.push(meta);
+            continue;
+          }
+          // Backward-compatible fallback if meta key is missing
+          const full = await redis.get(`passport:snapshot:${id}`);
+          const normalized = normalizeSnapshotMeta(full);
+          if (normalized) snapshots.push(normalized);
+        }
+
+        return json(res, 200, { contract_address: contractAddress, title, snapshots });
+      }
+
+      if (mode === "get") {
+        const id = (req.query?.id || "").toString().trim();
+        if (!id) return json(res, 400, { error: "Missing query param: id" });
+        const snapshot = await redis.get(`passport:snapshot:${id}`);
+        return json(res, 200, { contract_address: contractAddress, title, snapshot: snapshot || null });
+      }
+
+      if (mode === "diff") {
+        const fromId = (req.query?.from || "").toString().trim();
+        const toId = (req.query?.to || "").toString().trim();
+        if (!fromId || !toId) return json(res, 400, { error: "Missing query params: from, to" });
+
+        const [fromSnap, toSnap] = await redis.mget(`passport:snapshot:${fromId}`, `passport:snapshot:${toId}`);
+        const fromWallets = Array.isArray(fromSnap?.wallets) ? fromSnap.wallets : [];
+        const toWallets = Array.isArray(toSnap?.wallets) ? toSnap.wallets : [];
+
+        return json(res, 200, {
+          contract_address: contractAddress,
+          title,
+          from_snapshot: normalizeSnapshotMeta(fromSnap),
+          to_snapshot: normalizeSnapshotMeta(toSnap),
+          diff: diffWallets(fromWallets, toWallets),
+        });
       }
 
       // latest
@@ -158,10 +211,12 @@ export default async function handler(req, res) {
         total: wallets.length,
         wallets,
       };
+      const snapshotMeta = normalizeSnapshotMeta(snapshot);
 
       const diff = diffWallets(prevWallets, wallets);
 
       await redis.set(`passport:snapshot:${snapshotId}`, snapshot);
+      await redis.set(`passport:snapshotmeta:${snapshotId}`, snapshotMeta);
       await redis.lpush(effectiveListKey, snapshotId);
       await redis.ltrim(effectiveListKey, 0, 199); // keep last 200 snapshots
 
