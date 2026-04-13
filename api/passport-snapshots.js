@@ -22,8 +22,9 @@ function json(res, status, data) {
 }
 
 function getRedis() {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  // Supports both Upstash Redis integration and Vercel KV env vars (KV is Upstash under the hood).
+  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
   if (!url || !token) return null;
   return new Redis({ url, token });
 }
@@ -105,7 +106,7 @@ export default async function handler(req, res) {
     if (!redis) {
       return json(res, 501, {
         error:
-          "Snapshots storage is not configured. Add Upstash Redis integration in Vercel so env vars UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are set.",
+          "Snapshots storage is not configured. Connect Vercel KV (or Upstash Redis) so env vars KV_REST_API_URL + KV_REST_API_TOKEN (or UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN) are set.",
       });
     }
 

@@ -48,12 +48,16 @@ Endpoint:
 - **SENDLER_API_KEY**: API ключ для `api.sendler.xyz` (если на стороне Sendler включена проверка ключей).
 - **PASSPORT_CONTRACT_ADDRESS**: контракт, где искать NFT “Passport - North Upland”.
 
-Для снимков (хранение в Upstash Redis через Vercel интеграцию):
+Для снимков (хранение в Vercel KV / Upstash Redis):
 
-- **UPSTASH_REDIS_REST_URL**
-- **UPSTASH_REDIS_REST_TOKEN**
+Подойдут любые из вариантов (обычно они добавляются автоматически интеграцией):
 
-Эти переменные **добавляются автоматически** после подключения Upstash Redis к проекту в Vercel.
+- **Vercel KV**:
+  - `KV_REST_API_URL`
+  - `KV_REST_API_TOKEN`
+- **Upstash Redis**:
+  - `UPSTASH_REDIS_REST_URL`
+  - `UPSTASH_REDIS_REST_TOKEN`
 
 ### Локальный запуск
 
@@ -85,11 +89,11 @@ vercel dev
 
 1) **Создай проект в Vercel** и задеплой репозиторий.
 
-2) В Vercel открой проект → **Storage** → **Browse Marketplace** → найди **Upstash Redis** и подключи (Install / Add Integration).
+2) В Vercel открой проект → **Storage** → создай/подключи **KV (Redis)**.
 
 3) После подключения убедись, что в проекте появились env vars:
-   - `UPSTASH_REDIS_REST_URL`
-   - `UPSTASH_REDIS_REST_TOKEN`
+   - `KV_REST_API_URL`
+   - `KV_REST_API_TOKEN`
 
 4) (Опционально) Добавь `SENDLER_API_KEY` и `PASSPORT_CONTRACT_ADDRESS` в **Project → Settings → Environment Variables**.
 
